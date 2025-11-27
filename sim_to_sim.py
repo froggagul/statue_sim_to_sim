@@ -1,47 +1,42 @@
+import os
+import time
+
 import torch
-import os 
-from typing import List, Union
 import mujoco
 import mujoco.viewer
 import numpy as np
 import numpy.typing as npt
-from pathlib import Path
-from typing import Tuple
-
-import time
 
 
 
 class Simulator:
-    def __init__(self, 
-                 xml_path: str,
-                 joint_names: List[str],
-                 physics_off: bool = True,
-                 env_dt: float = 0.01,
-                 decimation: int = 4,
-                 gravity: Tuple[float] = (0, 0, -9.81),
-                 delay_step = 6,
-                 ):
-        
+    def __init__(
+        self,
+        xml_path: str,
+        joint_names: list[str],
+        env_dt: float = 0.02,
+        decimation: int = 4,
+        gravity: tuple[float, float, float] = (0, 0, -9.81),
+    ):
+
         # Load model from MJCF XML file.
-        self.xml_path = Path(xml_path).resolve()
+        self.xml_path = xml_path
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
-
-        # If physics_off is True, disable physics simulation.
-        self.physics = not physics_off
 
         # Initialize the simulation data.
         mujoco.mj_resetData(self.model, self.data)
 
-
+        self.pelvis_link_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis_link"
+        )
 
         # Set the time step for the simulation.
 
         self.env_dt = env_dt
         self.decimation = decimation
 
-        self.model.opt.timestep = env_dt/decimation
+        self.model.opt.timestep = env_dt / decimation
         # Set the gravity for the simulation.
         self.model.opt.gravity = gravity
 
@@ -51,106 +46,125 @@ class Simulator:
         # Joint names
         self.joint_names = joint_names
 
-        actuator_ids_list = [mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name) 
-                     for name in self.joint_names]
+        self.actuator_ids = np.array(
+            [
+                mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+                for name in self.joint_names
+            ]
+        )
 
-        self.actuator_ids = np.array(actuator_ids_list)
+        self.last_action: npt.NDArray[np.float64] = np.zeros((12,)).astype(np.float64)
 
+        self.phase: float = 0.0
+        self.target_velocity: npt.NDArray[np.float64] = np.zeros((3,))
 
-        self.last_action = np.zeros((2,12))
+        self.joint_offsets: npt.NDArray[np.float64] = np.array(
+            [
+                -0.3000,
+                0.3000,
+                0.0000,
+                0.0000,
+                -0.2000,
+                0.2000,
+                -0.5000,
+                0.5000,
+                -0.3000,
+                -0.3000,
+                0.0000,
+                0.0000,
+            ]
+        )
 
-        self.phase = 0.0
+    # Define a key callback function to handle keyboard inputs.
+    def key_callback(self, keycode):
+        if keycode == 265:  # up arrow
+            self.target_velocity[0] += 0.1
+            self.target_velocity = self.target_velocity.clip(-1.0, 1.0)
+            print(f"target velocity: {list(self.target_velocity.round(1))}")
+        elif keycode == 264:  # down arrow
+            self.target_velocity[0] -= 0.1
+            self.target_velocity = self.target_velocity.clip(-1.0, 1.0)
+            print(f"target velocity: {list(self.target_velocity.round(1))}")
+        elif keycode == 263:  # left arrow
+            self.target_velocity[1] += 0.1
+            self.target_velocity = self.target_velocity.clip(-1.0, 1.0)
+            print(f"target velocity: {list(self.target_velocity.round(1))}")
+        elif keycode == 262:  # right arrow
+            self.target_velocity[1] -= 0.1
+            self.target_velocity = self.target_velocity.clip(-1.0, 1.0)
+            print(f"target velocity: {list(self.target_velocity.round(1))}")
+        else:
+            pass
+            # print(f"Key pressed: {keycode}")
 
-        self.joint_offsets = np.array([-0.3000,  0.3000,  0.0000,  0.0000, -0.2000,  0.2000, -0.5000,  0.5000, -0.3000, -0.3000,  0.0000,  0.0000])
-
-        self.target_buf = np.zeros((delay_step+1,12))
-
-
-
-    # Run the simulation indefinitely until the viewer is closed or keyboard interrupted.
     def run(self):
-
-        # Define a key callback function to handle keyboard inputs.
-        def key_callback(keycode):
-            if chr(keycode) == 'q':
-                print("Quit command received. Closing viewer.")
-                self.viewer.close()
-            if chr(keycode) == 'r':
-                print("Resetting simulation.")
-                mujoco.mj_resetData(self.model, self.data)
 
         # Launch the viewer if not already launched.
         if self.viewer is not None:
             self.viewer.close()
 
         # Launch the viewer with the model.
-        self.viewer = mujoco.viewer.launch_passive(self.model, self.data, key_callback=key_callback)
-        
+        self.viewer = mujoco.viewer.launch_passive(
+            self.model, self.data, key_callback=self.key_callback
+        )
+
         # synchronize the model with the viewer
         self.viewer.sync()
-    
-    def _pre_process_action(self,action:np.ndarray):
+
+    def _pre_process_action(self, action: np.ndarray):
+        self.last_action[:] = action
 
         self.applyed_action = self.joint_offsets + action * 0.5
+        self.data.ctrl[self.actuator_ids] = self.applyed_action
 
-        self.last_action[:-1] = self.last_action[1:]
-        self.last_action[-1] = self.applyed_action
+    def _get_observations(self) -> np.ndarray:
 
-    def step_action(self):
+        obs_list: list[np.ndarray] = []
 
-        self.target_buf[:-1] = self.target_buf[1:]
-        self.target_buf[-1] = self.applyed_action
+        imu_gyro = self.data.sensordata[:3]
+        obs_list.append(imu_gyro)
 
-        self.data.ctrl[self.actuator_ids] = self.target_buf[0]
+        projected_gravity = project_gravity_calc(self.data.xquat[self.pelvis_link_id])
+        obs_list.append(projected_gravity)
 
-    def _get_observations(self)->np.ndarray:
+        obs_list.append(self.target_velocity)
+
+        if np.linalg.norm(self.target_velocity) > 1e-3:
+            self.phase += 0.02 * np.pi / 0.8 * 2.0
+        else:
+            self.phase = 0.0
+
+        obs_list.append(np.array([np.sin(self.phase), np.cos(self.phase)]))
 
         joint_pos = self.data.actuator_length[self.actuator_ids]
-        joint_vel = self.data.actuator_velocity[self.actuator_ids]
-
         joint_pos -= self.joint_offsets
+        obs_list.append(joint_pos)
 
+        joint_vel = self.data.actuator_velocity[self.actuator_ids]
+        obs_list.append(joint_vel)
 
-        id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "pelvis_link")
-        sensordata = self.data.sensordata
+        obs_list.append(self.last_action)
 
-        imu_gyro=sensordata[:3]
-
-        projected_gravity = project_gravity_calc(self.data.xquat[id])
-
-        # self.phase += 0.02 * np.pi /0.8 * 2.0
-
-        obs = np.concatenate([
-            imu_gyro,
-            projected_gravity,
-            # np.array([1.0,0.0,0.0]),
-            np.array([0.0,0.0,0.0]),
-            np.array([np.sin(self.phase),np.cos(self.phase)]),
-            joint_pos,
-            joint_vel,
-            # (self.last_action[-2]*0.6 + self.last_action[-1]*0.4)
-            # self.last_action[-2]
-            self.last_action[-1]
-        ]).astype(np.float32)
+        obs = np.concatenate(obs_list, axis=0).astype(np.float32)
 
         return obs
-        
-    def update(self, action:np.ndarray):
-        """Update the simulation state."""
 
-        self._pre_process_action(action)
+    def apply_action(self, action: torch.Tensor):
+        """Apply the action to the simulation without stepping."""
+        self._pre_process_action(action.cpu().numpy())
+
+    def step(self):
+        """Step the simulation without applying a new action."""
 
         for _ in range(self.decimation):
-            self.step_action()
             mujoco.mj_step(self.model, self.data)
 
         self.viewer.sync()
 
+    def get_observations(self) -> torch.Tensor:
+        """Get the current observations from the simulation."""
         obs = self._get_observations()
-
-        return obs
-
-        
+        return torch.Tensor(obs)
 
     def shutdown(self):
         """Shutdown the simulator and close the viewer."""
@@ -158,7 +172,6 @@ class Simulator:
             self.viewer.close()
             self.viewer = None
         print("Simulator shut down successfully.")
-
 
 
 class MathUtils:
@@ -208,43 +221,51 @@ if __name__ == "__main__":
     xml_path = os.path.join(root_dir, "assets/scene_statue_lowerbody_with10kg.xml")
     policy_path = os.path.join(root_dir, "models/policy.pt")
 
-    joint_names = ["left_hip_pitch_m",
-                    "right_hip_pitch_m",
-                    "left_hip_roll_m",
-                    "right_hip_roll_m",
-                    "left_hip_yaw_m",
-                    "right_hip_yaw_m",
-                    "left_knee_pitch_m",
-                    "right_knee_pitch_m",
-                    "left_ankle_pitch_m",
-                    "right_ankle_pitch_m",
-                    "left_ankle_roll_m",
-                    "right_ankle_roll_m",
-                    ]
+    joint_names = [
+        "left_hip_pitch_m",
+        "right_hip_pitch_m",
+        "left_hip_roll_m",
+        "right_hip_roll_m",
+        "left_hip_yaw_m",
+        "right_hip_yaw_m",
+        "left_knee_pitch_m",
+        "right_knee_pitch_m",
+        "left_ankle_pitch_m",
+        "right_ankle_pitch_m",
+        "left_ankle_roll_m",
+        "right_ankle_roll_m",
+    ]
 
-    simulator = Simulator(xml_path,joint_names,physics_off= False, env_dt = 0.02,decimation = 4,delay_step=3)
+    simulator = Simulator(
+        xml_path,
+        joint_names,
+    )
     policy = torch.jit.load(policy_path)
 
     try:
         simulator.run()
         with torch.no_grad():
-            action = np.zeros(12)
-            obs = simulator.update(action)
-            la = action.copy()
-            while True:
-                actions : torch.Tensor = policy(torch.tensor(obs))
+            while simulator.viewer.is_running():
                 time_start = time.time()
-                obs =  simulator.update(actions.numpy())
+
+                obs = simulator.get_observations()
+
+                actions: torch.Tensor = policy(obs)
+
+                obs = simulator.apply_action(actions)
+
+                simulator.step()
+
                 time_end = time.time()
-                if time_end-time_start <0.02:
+
+                if time_end - time_start < 0.02:
                     time.sleep(0.02 - (time_end - time_start))
                 else:
-                    print("step time :",time_end - time_start)
-                
+                    pass
+                    # print("step time :", time_end - time_start)
+
     except KeyboardInterrupt:
         print("Simulation interrupted by user.")
     finally:
         if simulator.viewer:
             simulator.viewer.close()  # Ensure the viewer is closed on exit.
-
-        
