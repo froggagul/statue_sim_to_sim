@@ -213,33 +213,23 @@ def project_gravity_calc(quat: npt.NDArray) -> npt.NDArray:
 
     return projected_gravity
 
-
 if __name__ == "__main__":
-
     root_dir = os.path.dirname(os.path.abspath(__file__))
-
+    
+    # Path settings (Adjust if necessary)
     xml_path = os.path.join(root_dir, "assets/scene_statue_lowerbody_with10kg.xml")
     policy_path = os.path.join(root_dir, "models/policy.pt")
 
     joint_names = [
-        "left_hip_pitch_m",
-        "right_hip_pitch_m",
-        "left_hip_roll_m",
-        "right_hip_roll_m",
-        "left_hip_yaw_m",
-        "right_hip_yaw_m",
-        "left_knee_pitch_m",
-        "right_knee_pitch_m",
-        "left_ankle_pitch_m",
-        "right_ankle_pitch_m",
-        "left_ankle_roll_m",
-        "right_ankle_roll_m",
+        "left_hip_pitch_m", "right_hip_pitch_m", "left_hip_roll_m", "right_hip_roll_m",
+        "left_hip_yaw_m", "right_hip_yaw_m", "left_knee_pitch_m", "right_knee_pitch_m",
+        "left_ankle_pitch_m", "right_ankle_pitch_m", "left_ankle_roll_m", "right_ankle_roll_m",
     ]
 
-    simulator = Simulator(
-        xml_path,
-        joint_names,
-    )
+    # Initialize Simulator
+    simulator = Simulator(xml_path, joint_names)
+    
+    # Load Policy
     policy = torch.jit.load(policy_path)
 
     try:
@@ -248,24 +238,29 @@ if __name__ == "__main__":
             while simulator.viewer.is_running():
                 time_start = time.time()
 
-                obs = simulator.get_observations()
+                # [TODO 1] Complete the Main Loop.
+                # 1. Get Observations
+                obs = ### CODE HERE ###
 
-                actions: torch.Tensor = policy(obs)
+                # 2. Policy Inference (Calculate Action)
+                actions: torch.Tensor = ### CODE HERE ###
 
-                simulator.apply_action(actions)
+                # 3. Apply Action
+                ### CODE HERE ###
 
-                simulator.step()
+                # 4. Step Simulation
+                ### CODE HERE ###
 
                 time_end = time.time()
 
+                # Real-time sync
                 if time_end - time_start < 0.02:
                     time.sleep(0.02 - (time_end - time_start))
-                else:
-                    pass
-                    # print("step time :", time_end - time_start)
 
     except KeyboardInterrupt:
         print("Simulation interrupted by user.")
+    except Exception as e:
+        print(f"Error occurred: {e}")
     finally:
         if simulator.viewer:
-            simulator.viewer.close()  # Ensure the viewer is closed on exit.
+            simulator.viewer.close()
