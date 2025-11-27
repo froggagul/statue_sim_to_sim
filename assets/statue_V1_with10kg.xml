@@ -37,7 +37,7 @@
     </default>                                    <!-- robot-class 닫기 -->
   </default>   
 
-  <compiler angle="radian" autolimits="true" mesh_dir="./meshes"/>
+  <compiler angle="radian" autolimits="true" meshdir="./meshes"/>
 
   <asset>
     <material name="none" rgba="0.79216 0.81961 0.93333 1" />
