@@ -184,28 +184,19 @@ class MathUtils:
         else:
             c = q_vec * np.einsum("...i,...i->...", q_vec, v).unsqueeze(-1) * 2.0
         return a - b + c
-    
-    @staticmethod
-    def normalize(x: npt.NDArray, eps: float = 1e-9) -> npt.NDArray:
-        """Normalize a vector along the last dimension of x.
 
-        Args:
-            x: The input vector. Shape is (..., D).
-            eps: A small value to avoid division by zero.
 
-        Returns:
-            The normalized vector. Shape is (..., D).
-        """
-        norm = np.linalg.norm(x, axis=-1, keepdims=True)
-        return x / (norm + eps)
 
-def project_gravity_calc( ang_pos: npt.NDArray) -> npt.NDArray:
-    
-    # gravity = np.array([0.0, 0.0, -9.8])
-    # gravity_dir = MathUtils.normalize(ang_pos)
+def project_gravity_calc(quat: npt.NDArray) -> npt.NDArray:
+    gravity_dir = np.array(
+        [
+            [0.0, 0.0, -1.0],
+        ]
+    )
 
-    gravity_dir = np.array([[0.0, 0.0, -1.0],])
-    projected_gravity = MathUtils.quat_rotate_inverse(np.expand_dims(ang_pos, axis=0), gravity_dir).squeeze()
+    projected_gravity = MathUtils.quat_rotate_inverse(
+        np.expand_dims(quat, axis=0), gravity_dir
+    ).squeeze()
 
     return projected_gravity
 
