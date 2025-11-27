@@ -203,11 +203,10 @@ def project_gravity_calc(quat: npt.NDArray) -> npt.NDArray:
 
 if __name__ == "__main__":
 
-    xml_path = "/home/lms/sim_to_real/statue_sim_to_real/assets/scene_statue_lowerbody_with10kg.xml" 
-    # policy_path = '/home/lms/sim_to_real/statue_sim_to_real/models/policy.pt'
-    # policy_path = '/home/lms/sim_to_real/statue_sim_to_real/models/motor_delay.pt'
-    policy_path = '/home/lms/sim_to_real/statue_sim_to_real/models/delay_all_dr.pt'
+    root_dir = os.path.dirname(os.path.abspath(__file__))
 
+    xml_path = os.path.join(root_dir, "assets/scene_statue_lowerbody_with10kg.xml")
+    policy_path = os.path.join(root_dir, "models/policy.pt")
 
     joint_names = ["left_hip_pitch_m",
                     "right_hip_pitch_m",
