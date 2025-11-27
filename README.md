@@ -13,6 +13,12 @@ To create and activate the conda environment, run:
 conda create -n sim_to_sim python=3.11 -y
 conda activate sim_to_sim
 ```
+or
+```
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
 Then, install the required packages:
 ```
 pip install -r requirements.txt
@@ -23,5 +29,5 @@ pip install -r requirements.txt
 To run the simulation, execute:
 
 ```
-python sim_to_sim.py
+python main.py --max_latency_step <latency step>
 ```

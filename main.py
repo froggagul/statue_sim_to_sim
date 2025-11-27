@@ -221,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max_latency_step",
         type=int,
-        default=8,
+        default=0,
         help="Number of MuJoCo substeps per control step.",
     )
     args = parser.parse_args()
